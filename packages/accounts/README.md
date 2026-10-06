@@ -432,6 +432,7 @@ For external signers, there are two options:
   - Maximum signers per context rule: 15
   - Maximum policies per context rule: 5
 - Signers and policies are stored in a global registry and deduplicated across rules. The same signer object (identified by its XDR encoding) is stored once regardless of how many rules reference it. Each signer and policy is assigned a stable `u32` ID that is used when removing them from a rule (`remove_signer`, `remove_policy`).
+- Every rule, signer and policy mutation emits per-item events, and a transaction's contract events are capped by the network (16 KiB at the time of writing). An account that applies a whole configuration in one call can use the `_no_events` variants (`add_context_rule_no_events`, `add_signer_no_events`, `remove_policy_no_events`, …, and `install_no_events` / `uninstall_no_events` in each policy module). They change storage exactly like the default functions but publish nothing, so the account must emit its own event describing the resulting configuration, or indexers that follow these events will miss the change.
 
 ## Migration Guide: from v0.6.0 to 0.7.0
 
