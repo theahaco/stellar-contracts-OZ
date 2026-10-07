@@ -1354,6 +1354,154 @@ fn batch_add_signer_impl(e: &Env, id: u32, signers: &Vec<Signer>, emit: bool) {
     e.storage().persistent().set(&data_key, &entry);
 }
 
+/// Replaces the signer set of an existing context rule with `signers` in a
+/// single operation, returning the resulting signer IDs in the order of
+/// `signers`.
+///
+/// Unlike adding and removing signers one at a time, the rule never passes
+/// through an intermediate signer set: the final set is validated as a whole
+/// before any storage is touched, so a full key rotation does not need room
+/// for the old and new keys side by side. Signers present both before and
+/// after keep their IDs and registry entries; only the signers that actually
+/// leave or join the rule are deregistered or registered, and the rule entry
+/// is written once. The rule's ID, metadata and policies are not changed and
+/// no policy is called.
+///
+/// If `signers` is exactly the current signer list (same signers in the
+/// same order), nothing is written and no event is emitted.
+///
+/// # Arguments
+///
+/// * `e` - Access to the Soroban environment.
+/// * `id` - The ID of the context rule.
+/// * `signers` - The complete signer set the rule should have.
+///
+/// # Errors
+///
+/// * [`SmartAccountError::ContextRuleNotFound`] - When the context rule with
+///   the specified ID does not exist.
+/// * [`SmartAccountError::DuplicateSigner`] - When two signers in `signers`
+///   share the same canonical key identity.
+/// * [`SmartAccountError::TooManySigners`] - When `signers` has more than
+///   [`MAX_SIGNERS`] entries.
+/// * [`SmartAccountError::NoSignersAndPolicies`] - When `signers` is empty and
+///   the rule has no policies.
+/// * [`SmartAccountError::MathOverflow`] - When a new signer needs an ID and
+///   the signer ID counter has reached `u32::MAX`.
+/// * refer to [`validate_signer_key_size`] errors.
+///
+/// # Events
+///
+/// For each signer removed from the rule:
+/// * topics - `["signer_removed", context_rule_id: u32]`
+/// * data - `[signer_id: u32]`
+///
+/// For each removed signer no longer referenced by any rule:
+/// * topics - `["signer_deregistered", signer_id: u32]`
+/// * data - `[]`
+///
+/// For each signer added to the rule:
+/// * topics - `["signer_added", context_rule_id: u32]`
+/// * data - `[signer_id: u32]`
+///
+/// For each added signer not previously registered in the global registry:
+/// * topics - `["signer_registered", signer_id: u32]`
+/// * data - `[signer: Signer]`
+///
+/// # Security Warning
+///
+/// * **Threshold Policy Consideration:** Policies are not notified of the new
+///   signer set. If the rule carries a threshold-based policy, update its
+///   threshold (or signer weights) in the same transaction so that it stays
+///   achievable and keeps the intended security level.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn reconcile_signers(e: &Env, id: u32, signers: &Vec<Signer>) -> Vec<u32> {
+    reconcile_signers_impl(e, id, signers, true)
+}
+
+/// Same as [`reconcile_signers`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`reconcile_signers`].
+///
+/// # Errors
+///
+/// See [`reconcile_signers`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`reconcile_signers`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn reconcile_signers_no_events(e: &Env, id: u32, signers: &Vec<Signer>) -> Vec<u32> {
+    reconcile_signers_impl(e, id, signers, false)
+}
+
+fn reconcile_signers_impl(e: &Env, id: u32, signers: &Vec<Signer>, emit: bool) -> Vec<u32> {
+    let data_key = SmartAccountStorageKey::ContextRuleData(id);
+    let mut entry: ContextRuleEntry = get_persistent_entry(e, &data_key)
+        .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::ContextRuleNotFound));
+
+    // Validate the final set as a whole before any mutation.
+    if signers.len() > MAX_SIGNERS {
+        panic_with_error!(e, SmartAccountError::TooManySigners);
+    }
+    if signers.is_empty() && entry.policy_ids.is_empty() {
+        panic_with_error!(e, SmartAccountError::NoSignersAndPolicies);
+    }
+    signers.iter().for_each(|signer| validate_signer_key_size(e, &signer));
+    validate_no_canonical_duplicates(e, signers);
+
+    let current = get_signers(e, &entry.signer_ids);
+    if current == *signers {
+        return entry.signer_ids;
+    }
+
+    // Release the signers that leave the rule.
+    for (signer, signer_id) in current.iter().zip(entry.signer_ids.iter()) {
+        if !signers.contains(&signer) {
+            deregister_signer(e, signer_id, emit);
+            if emit {
+                emit_signer_removed(e, id, signer_id);
+            }
+        }
+    }
+
+    // Keep the IDs of retained signers and register the new ones.
+    let mut signer_ids = Vec::new(e);
+    for signer in signers.iter() {
+        match current.first_index_of(&signer) {
+            Some(pos) => signer_ids.push_back(entry.signer_ids.get_unchecked(pos)),
+            None => {
+                let new_signer_id = register_signer(e, &signer, emit);
+                if emit {
+                    emit_signer_added(e, id, new_signer_id);
+                }
+                signer_ids.push_back(new_signer_id);
+            }
+        }
+    }
+
+    entry.signer_ids = signer_ids.clone();
+    e.storage().persistent().set(&data_key, &entry);
+
+    signer_ids
+}
+
 // ################## POLICY MANAGEMENT ##################
 
 /// Adds a new policy to an existing context rule, installs it, and returns
