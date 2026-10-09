@@ -1368,7 +1368,10 @@ fn batch_add_signer_impl(e: &Env, id: u32, signers: &Vec<Signer>, emit: bool) {
 /// no policy is called.
 ///
 /// If `signers` is exactly the current signer list (same signers in the
-/// same order), nothing is written and no event is emitted.
+/// same order), nothing is written and no event is emitted. A reordering of
+/// the current signers is not a no-op: the registry and events are
+/// untouched, but the rule is rewritten in the new order, which
+/// [`get_context_rule`] then returns.
 ///
 /// # Arguments
 ///
@@ -1456,7 +1459,11 @@ fn reconcile_signers_impl(e: &Env, id: u32, signers: &Vec<Signer>, emit: bool) -
     let mut entry: ContextRuleEntry = get_persistent_entry(e, &data_key)
         .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::ContextRuleNotFound));
 
-    // Validate the final set as a whole before any mutation.
+    // Validate the final set as a whole before any mutation. The two count
+    // checks restate `validate_signers_and_policies` (the policy count does
+    // not change here), which takes signer IDs that do not exist yet for the
+    // joining signers. Keep them in sync with that function;
+    // `count_checks_match_validate_signers_and_policies` tests that they agree.
     if signers.len() > MAX_SIGNERS {
         panic_with_error!(e, SmartAccountError::TooManySigners);
     }

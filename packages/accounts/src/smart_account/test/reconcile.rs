@@ -13,8 +13,8 @@ use crate::{
     smart_account::{
         storage::{
             add_context_rule, add_signer, get_context_rule, reconcile_signers,
-            reconcile_signers_no_events, ContextRule, ContextRuleType, PolicyEntry, Signer,
-            SignerEntry, SmartAccountStorageKey,
+            reconcile_signers_no_events, validate_signers_and_policies, ContextRule,
+            ContextRuleType, PolicyEntry, Signer, SignerEntry, SmartAccountStorageKey,
         },
         SignerAdded, SignerDeregistered, SignerRegistered, SignerRemoved, MAX_SIGNERS,
     },
@@ -33,6 +33,12 @@ impl MockAccount {
 
     pub fn add(e: &Env, id: u32, signer: Signer) -> u32 {
         add_signer(e, id, &signer)
+    }
+
+    pub fn validate(e: &Env, signer_count: u32, policy_count: u32) {
+        let signer_ids = Vec::from_iter(e, 0..signer_count);
+        let policy_ids = Vec::from_iter(e, 0..policy_count);
+        validate_signers_and_policies(e, &signer_ids, &policy_ids);
     }
 }
 
@@ -468,4 +474,31 @@ fn rejects_unknown_rule() {
     let s = Setup::new();
     s.add_rule(&s.passkeys(1..3), &Map::new(&s.e));
     assert_rejected(&s, 7, &s.passkeys(1..3), 3000);
+}
+
+/// `reconcile_signers` restates the count checks of
+/// `validate_signers_and_policies` because the joining signers have no IDs
+/// yet. Both must accept and reject the same signer and policy counts.
+#[test]
+fn count_checks_match_validate_signers_and_policies() {
+    for with_policy in [false, true] {
+        for count in [0, 1, MAX_SIGNERS - 1, MAX_SIGNERS, MAX_SIGNERS + 1] {
+            let s = Setup::new();
+            let client = MockAccountClient::new(&s.e, &s.account);
+            let mut policies = Map::new(&s.e);
+            if with_policy {
+                policies.set(s.e.register(MockPolicyContract, ()), Val::from_void().into());
+            }
+            let rule = s.add_rule(&s.passkeys(1..3), &policies);
+
+            let expected =
+                client.try_validate(&count, &(with_policy as u32)).err().map(|e| e.unwrap());
+            let actual = client
+                .try_reconcile(&rule.id, &s.passkeys(100..100 + count as u8))
+                .err()
+                .map(|e| e.unwrap());
+
+            assert_eq!(actual, expected, "{count} signers, policy: {with_policy}");
+        }
+    }
 }
