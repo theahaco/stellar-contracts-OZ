@@ -120,12 +120,15 @@ use soroban_sdk::{
     String, Symbol, Val, Vec,
 };
 pub use storage::{
-    add_context_rule, add_policy, add_signer, authenticate, batch_add_signer, do_check_auth,
-    get_context_rule, get_context_rules_count, get_validated_context_by_id, remove_context_rule,
-    remove_policy, remove_signer, update_context_rule_name, update_context_rule_valid_until,
-    validate_context_rule_name, validate_no_canonical_duplicates, validate_signer_key_size,
-    validate_signers_and_policies, AuthPayload, ContextRule, ContextRuleEntry, ContextRuleType,
-    Signer, SmartAccountStorageKey,
+    add_context_rule, add_context_rule_no_events, add_policy, add_policy_no_events, add_signer,
+    add_signer_no_events, authenticate, batch_add_signer, batch_add_signer_no_events,
+    do_check_auth, get_context_rule, get_context_rules_count, get_validated_context_by_id,
+    remove_context_rule, remove_context_rule_no_events, remove_policy, remove_policy_no_events,
+    remove_signer, remove_signer_no_events, update_context_rule_name,
+    update_context_rule_name_no_events, update_context_rule_valid_until,
+    update_context_rule_valid_until_no_events, validate_context_rule_name,
+    validate_no_canonical_duplicates, validate_signer_key_size, validate_signers_and_policies,
+    AuthPayload, ContextRule, ContextRuleEntry, ContextRuleType, Signer, SmartAccountStorageKey,
 };
 
 /// Core trait for smart account functionality, extending Soroban's

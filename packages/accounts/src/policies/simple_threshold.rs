@@ -281,6 +281,45 @@ pub fn install(
     context_rule: &ContextRule,
     smart_account: &Address,
 ) {
+    install_impl(e, params, context_rule, smart_account, true)
+}
+
+/// Same as [`install`], but emits no event.
+///
+/// Identical to [`install`] in validation, authorization and storage changes;
+/// only the event listed there is not published. Intended for policies whose
+/// installing smart account applies a whole configuration in one invocation
+/// and publishes its own event describing it, where the per-item events would
+/// only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`install`].
+///
+/// # Errors
+///
+/// See [`install`].
+///
+/// # Security Warning
+///
+/// Indexers that track this policy's per-account state from its events will
+/// miss this change.
+pub fn install_no_events(
+    e: &Env,
+    params: &SimpleThresholdAccountParams,
+    context_rule: &ContextRule,
+    smart_account: &Address,
+) {
+    install_impl(e, params, context_rule, smart_account, false)
+}
+
+fn install_impl(
+    e: &Env,
+    params: &SimpleThresholdAccountParams,
+    context_rule: &ContextRule,
+    smart_account: &Address,
+    emit: bool,
+) {
     // Require authorization from the smart_account
     smart_account.require_auth();
 
@@ -293,12 +332,14 @@ pub fn install(
 
     validate_and_set_threshold(e, params.threshold, context_rule, smart_account);
 
-    SimpleInstalled {
-        smart_account: smart_account.clone(),
-        context_rule_id: context_rule.id,
-        threshold: params.threshold,
+    if emit {
+        SimpleInstalled {
+            smart_account: smart_account.clone(),
+            context_rule_id: context_rule.id,
+            threshold: params.threshold,
+        }
+        .publish(e);
     }
-    .publish(e);
 }
 
 /// Uninstalls the simple threshold policy from a smart account.
@@ -321,6 +362,34 @@ pub fn install(
 /// * topics - `["simple_uninstalled", smart_account: Address]`
 /// * data - `[context_rule_id: u32]`
 pub fn uninstall(e: &Env, context_rule: &ContextRule, smart_account: &Address) {
+    uninstall_impl(e, context_rule, smart_account, true)
+}
+
+/// Same as [`uninstall`], but emits no event.
+///
+/// Identical to [`uninstall`] in validation, authorization and storage changes;
+/// only the event listed there is not published. Intended for policies whose
+/// installing smart account applies a whole configuration in one invocation
+/// and publishes its own event describing it, where the per-item events would
+/// only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`uninstall`].
+///
+/// # Errors
+///
+/// See [`uninstall`].
+///
+/// # Security Warning
+///
+/// Indexers that track this policy's per-account state from its events will
+/// miss this change.
+pub fn uninstall_no_events(e: &Env, context_rule: &ContextRule, smart_account: &Address) {
+    uninstall_impl(e, context_rule, smart_account, false)
+}
+
+fn uninstall_impl(e: &Env, context_rule: &ContextRule, smart_account: &Address, emit: bool) {
     // Require authorization from the smart_account
     smart_account.require_auth();
 
@@ -332,8 +401,13 @@ pub fn uninstall(e: &Env, context_rule: &ContextRule, smart_account: &Address) {
 
     e.storage().persistent().remove(&key);
 
-    SimpleUninstalled { smart_account: smart_account.clone(), context_rule_id: context_rule.id }
+    if emit {
+        SimpleUninstalled {
+            smart_account: smart_account.clone(),
+            context_rule_id: context_rule.id,
+        }
         .publish(e);
+    }
 }
 
 /// Internal function that validates and sets the threshold.

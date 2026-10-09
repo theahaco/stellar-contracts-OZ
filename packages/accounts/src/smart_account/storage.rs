@@ -641,6 +641,55 @@ pub fn add_context_rule(
     signers: &Vec<Signer>,
     policies: &Map<Address, Val>,
 ) -> ContextRule {
+    add_context_rule_impl(e, context_type, name, valid_until, signers, policies, true)
+}
+
+/// Same as [`add_context_rule`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`add_context_rule`].
+///
+/// # Errors
+///
+/// See [`add_context_rule`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`add_context_rule`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn add_context_rule_no_events(
+    e: &Env,
+    context_type: &ContextRuleType,
+    name: &String,
+    valid_until: Option<u32>,
+    signers: &Vec<Signer>,
+    policies: &Map<Address, Val>,
+) -> ContextRule {
+    add_context_rule_impl(e, context_type, name, valid_until, signers, policies, false)
+}
+
+fn add_context_rule_impl(
+    e: &Env,
+    context_type: &ContextRuleType,
+    name: &String,
+    valid_until: Option<u32>,
+    signers: &Vec<Signer>,
+    policies: &Map<Address, Val>,
+    emit: bool,
+) -> ContextRule {
     validate_context_rule_name(e, name);
 
     let id = e.storage().instance().get(&SmartAccountStorageKey::NextId).unwrap_or(0u32);
@@ -660,11 +709,12 @@ pub fn add_context_rule(
     let policies_vec = Vec::from_iter(e, policies.keys());
 
     // Register signers in global registry and collect their IDs
-    let signer_ids: Vec<u32> = Vec::from_iter(e, signers.iter().map(|s| register_signer(e, &s)));
+    let signer_ids: Vec<u32> =
+        Vec::from_iter(e, signers.iter().map(|s| register_signer(e, &s, emit)));
 
     // Register policies in global registry and collect their IDs
     let policy_ids: Vec<u32> =
-        Vec::from_iter(e, policies_vec.iter().map(|p| register_policy(e, &p)));
+        Vec::from_iter(e, policies_vec.iter().map(|p| register_policy(e, &p, emit)));
 
     validate_signers_and_policies(e, &signer_ids, &policy_ids);
 
@@ -696,7 +746,9 @@ pub fn add_context_rule(
         PolicyClient::new(e, &policy).install(&param, &context_rule, &e.current_contract_address());
     }
 
-    emit_context_rule_added(e, id, name, context_type, valid_until, &signer_ids, &policy_ids);
+    if emit {
+        emit_context_rule_added(e, id, name, context_type, valid_until, &signer_ids, &policy_ids);
+    }
 
     // Increment next id
     let next_id =
@@ -734,6 +786,40 @@ pub fn add_context_rule(
 /// This function modifies storage without requiring authorization. Ensure
 /// proper access control is implemented at the contract level.
 pub fn update_context_rule_name(e: &Env, id: u32, name: &String) -> ContextRule {
+    update_context_rule_name_impl(e, id, name, true)
+}
+
+/// Same as [`update_context_rule_name`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`update_context_rule_name`].
+///
+/// # Errors
+///
+/// See [`update_context_rule_name`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`update_context_rule_name`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn update_context_rule_name_no_events(e: &Env, id: u32, name: &String) -> ContextRule {
+    update_context_rule_name_impl(e, id, name, false)
+}
+
+fn update_context_rule_name_impl(e: &Env, id: u32, name: &String, emit: bool) -> ContextRule {
     validate_context_rule_name(e, name);
 
     let data_key = SmartAccountStorageKey::ContextRuleData(id);
@@ -746,7 +832,9 @@ pub fn update_context_rule_name(e: &Env, id: u32, name: &String) -> ContextRule 
     entry.name = name.clone();
     e.storage().persistent().set(&data_key, &entry);
 
-    emit_context_rule_meta_updated(e, id, name, &entry.valid_until);
+    if emit {
+        emit_context_rule_meta_updated(e, id, name, &entry.valid_until);
+    }
 
     ContextRule {
         id,
@@ -784,6 +872,50 @@ pub fn update_context_rule_name(e: &Env, id: u32, name: &String) -> ContextRule 
 /// This function modifies storage without requiring authorization. Ensure
 /// proper access control is implemented at the contract level.
 pub fn update_context_rule_valid_until(e: &Env, id: u32, valid_until: Option<u32>) -> ContextRule {
+    update_context_rule_valid_until_impl(e, id, valid_until, true)
+}
+
+/// Same as [`update_context_rule_valid_until`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`update_context_rule_valid_until`].
+///
+/// # Errors
+///
+/// See [`update_context_rule_valid_until`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`update_context_rule_valid_until`] applies
+///   unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn update_context_rule_valid_until_no_events(
+    e: &Env,
+    id: u32,
+    valid_until: Option<u32>,
+) -> ContextRule {
+    update_context_rule_valid_until_impl(e, id, valid_until, false)
+}
+
+fn update_context_rule_valid_until_impl(
+    e: &Env,
+    id: u32,
+    valid_until: Option<u32>,
+    emit: bool,
+) -> ContextRule {
     if let Some(valid_until) = valid_until {
         if valid_until < e.ledger().sequence() {
             panic_with_error!(e, SmartAccountError::PastValidUntil)
@@ -800,7 +932,9 @@ pub fn update_context_rule_valid_until(e: &Env, id: u32, valid_until: Option<u32
     entry.valid_until = valid_until;
     e.storage().persistent().set(&data_key, &entry);
 
-    emit_context_rule_meta_updated(e, id, &entry.name, &valid_until);
+    if emit {
+        emit_context_rule_meta_updated(e, id, &entry.name, &valid_until);
+    }
 
     ContextRule {
         id,
@@ -845,6 +979,40 @@ pub fn update_context_rule_valid_until(e: &Env, id: u32, valid_until: Option<u32
 /// This function modifies storage without requiring authorization. Ensure
 /// proper access control is implemented at the contract level.
 pub fn remove_context_rule(e: &Env, id: u32) {
+    remove_context_rule_impl(e, id, true)
+}
+
+/// Same as [`remove_context_rule`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`remove_context_rule`].
+///
+/// # Errors
+///
+/// See [`remove_context_rule`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`remove_context_rule`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn remove_context_rule_no_events(e: &Env, id: u32) {
+    remove_context_rule_impl(e, id, false)
+}
+
+fn remove_context_rule_impl(e: &Env, id: u32, emit: bool) {
     let entry: ContextRuleEntry = e
         .storage()
         .persistent()
@@ -873,11 +1041,11 @@ pub fn remove_context_rule(e: &Env, id: u32) {
             .try_uninstall(&context_rule, &e.current_contract_address());
 
         // Deregister policies from global registry
-        deregister_policy(e, policy_id);
+        deregister_policy(e, policy_id, emit);
     }
 
     for signer_id in entry.signer_ids.iter() {
-        deregister_signer(e, signer_id);
+        deregister_signer(e, signer_id, emit);
     }
 
     e.storage().persistent().remove(&SmartAccountStorageKey::ContextRuleData(id));
@@ -887,7 +1055,9 @@ pub fn remove_context_rule(e: &Env, id: u32) {
     // if count is set, it can be safely assumed it's greater than 0
     e.storage().instance().set(&SmartAccountStorageKey::Count, &(count - 1));
 
-    emit_context_rule_removed(e, id);
+    if emit {
+        emit_context_rule_removed(e, id);
+    }
 }
 
 // ################## SIGNER MANAGEMENT ##################
@@ -931,6 +1101,40 @@ pub fn remove_context_rule(e: &Env, id: u32) {
 /// * This function modifies storage without requiring authorization. Ensure
 ///   proper access control is implemented at the contract level.
 pub fn add_signer(e: &Env, id: u32, signer: &Signer) -> u32 {
+    add_signer_impl(e, id, signer, true)
+}
+
+/// Same as [`add_signer`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`add_signer`].
+///
+/// # Errors
+///
+/// See [`add_signer`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`add_signer`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn add_signer_no_events(e: &Env, id: u32, signer: &Signer) -> u32 {
+    add_signer_impl(e, id, signer, false)
+}
+
+fn add_signer_impl(e: &Env, id: u32, signer: &Signer, emit: bool) -> u32 {
     validate_signer_key_size(e, signer);
 
     // Get current entry to access existing IDs
@@ -943,7 +1147,7 @@ pub fn add_signer(e: &Env, id: u32, signer: &Signer) -> u32 {
     all_signers.push_back(signer.clone());
     validate_no_canonical_duplicates(e, &all_signers);
 
-    let new_signer_id = register_signer(e, signer);
+    let new_signer_id = register_signer(e, signer, emit);
 
     entry.signer_ids.push_back(new_signer_id);
 
@@ -951,7 +1155,9 @@ pub fn add_signer(e: &Env, id: u32, signer: &Signer) -> u32 {
 
     e.storage().persistent().set(&data_key, &entry);
 
-    emit_signer_added(e, id, new_signer_id);
+    if emit {
+        emit_signer_added(e, id, new_signer_id);
+    }
 
     new_signer_id
 }
@@ -992,6 +1198,40 @@ pub fn add_signer(e: &Env, id: u32, signer: &Signer) -> u32 {
 /// * This function modifies storage without requiring authorization. Ensure
 ///   proper access control is implemented at the contract level.
 pub fn remove_signer(e: &Env, context_rule_id: u32, signer_id: u32) {
+    remove_signer_impl(e, context_rule_id, signer_id, true)
+}
+
+/// Same as [`remove_signer`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`remove_signer`].
+///
+/// # Errors
+///
+/// See [`remove_signer`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`remove_signer`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn remove_signer_no_events(e: &Env, context_rule_id: u32, signer_id: u32) {
+    remove_signer_impl(e, context_rule_id, signer_id, false)
+}
+
+fn remove_signer_impl(e: &Env, context_rule_id: u32, signer_id: u32, emit: bool) {
     let data_key = SmartAccountStorageKey::ContextRuleData(context_rule_id);
     let mut entry: ContextRuleEntry = get_persistent_entry(e, &data_key)
         .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::ContextRuleNotFound));
@@ -1002,9 +1242,11 @@ pub fn remove_signer(e: &Env, context_rule_id: u32, signer_id: u32) {
         validate_signers_and_policies(e, &entry.signer_ids, &entry.policy_ids);
 
         e.storage().persistent().set(&data_key, &entry);
-        deregister_signer(e, signer_id);
+        deregister_signer(e, signer_id, emit);
 
-        emit_signer_removed(e, context_rule_id, signer_id);
+        if emit {
+            emit_signer_removed(e, context_rule_id, signer_id);
+        }
     } else {
         panic_with_error!(e, SmartAccountError::SignerNotFound)
     }
@@ -1053,6 +1295,40 @@ pub fn remove_signer(e: &Env, context_rule_id: u32, signer_id: u32) {
 /// * This function modifies storage without requiring authorization. Ensure
 ///   proper access control is implemented at the contract level.
 pub fn batch_add_signer(e: &Env, id: u32, signers: &Vec<Signer>) {
+    batch_add_signer_impl(e, id, signers, true)
+}
+
+/// Same as [`batch_add_signer`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`batch_add_signer`].
+///
+/// # Errors
+///
+/// See [`batch_add_signer`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`batch_add_signer`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn batch_add_signer_no_events(e: &Env, id: u32, signers: &Vec<Signer>) {
+    batch_add_signer_impl(e, id, signers, false)
+}
+
+fn batch_add_signer_impl(e: &Env, id: u32, signers: &Vec<Signer>, emit: bool) {
     let data_key = SmartAccountStorageKey::ContextRuleData(id);
     let mut entry: ContextRuleEntry = get_persistent_entry(e, &data_key)
         .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::ContextRuleNotFound));
@@ -1066,9 +1342,11 @@ pub fn batch_add_signer(e: &Env, id: u32, signers: &Vec<Signer>) {
     validate_no_canonical_duplicates(e, &all_signers);
 
     for signer in signers.iter() {
-        let new_signer_id = register_signer(e, &signer);
+        let new_signer_id = register_signer(e, &signer, emit);
         entry.signer_ids.push_back(new_signer_id);
-        emit_signer_added(e, id, new_signer_id);
+        if emit {
+            emit_signer_added(e, id, new_signer_id);
+        }
     }
 
     validate_signers_and_policies(e, &entry.signer_ids, &entry.policy_ids);
@@ -1110,12 +1388,60 @@ pub fn batch_add_signer(e: &Env, id: u32, signers: &Vec<Signer>) {
 /// This function modifies storage without requiring authorization. Ensure
 /// proper access control is implemented at the contract level.
 pub fn add_policy(e: &Env, context_rule_id: u32, policy: &Address, install_param: Val) -> u32 {
+    add_policy_impl(e, context_rule_id, policy, install_param, true)
+}
+
+/// Same as [`add_policy`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`add_policy`].
+///
+/// # Errors
+///
+/// See [`add_policy`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`add_policy`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn add_policy_no_events(
+    e: &Env,
+    context_rule_id: u32,
+    policy: &Address,
+    install_param: Val,
+) -> u32 {
+    add_policy_impl(e, context_rule_id, policy, install_param, false)
+}
+
+fn add_policy_impl(
+    e: &Env,
+    context_rule_id: u32,
+    policy: &Address,
+    install_param: Val,
+    emit: bool,
+) -> u32 {
     let data_key = SmartAccountStorageKey::ContextRuleData(context_rule_id);
     let mut entry: ContextRuleEntry = get_persistent_entry(e, &data_key)
         .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::ContextRuleNotFound));
 
-    // Register in global policy registry and get its ID
-    let policy_id = register_policy(e, policy);
+    // Register in global policy registry and get its ID. This runs before the
+    // duplicate check below because the check needs the ID; on a duplicate the
+    // refcount increment is reverted together with the rest of the call by
+    // the `DuplicatePolicy` panic.
+    let policy_id = register_policy(e, policy, emit);
 
     // Check if policy already exists
     if entry.policy_ids.contains(policy_id) {
@@ -1140,7 +1466,9 @@ pub fn add_policy(e: &Env, context_rule_id: u32, policy: &Address, install_param
     };
     PolicyClient::new(e, policy).install(&install_param, &rule, &e.current_contract_address());
 
-    emit_policy_added(e, context_rule_id, policy_id);
+    if emit {
+        emit_policy_added(e, context_rule_id, policy_id);
+    }
 
     policy_id
 }
@@ -1175,6 +1503,40 @@ pub fn add_policy(e: &Env, context_rule_id: u32, policy: &Address, install_param
 /// This function modifies storage without requiring authorization. Ensure
 /// proper access control is implemented at the contract level.
 pub fn remove_policy(e: &Env, context_rule_id: u32, policy_id: u32) {
+    remove_policy_impl(e, context_rule_id, policy_id, true)
+}
+
+/// Same as [`remove_policy`], but emits no events.
+///
+/// Identical to the event-emitting variant in validation, storage changes
+/// and policy calls; only the events listed there are not published.
+/// Intended for contracts that apply a whole configuration in one
+/// invocation and publish their own event describing it, where the per-item
+/// events would only consume the per-transaction contract-event budget.
+///
+/// # Arguments
+///
+/// See [`remove_policy`].
+///
+/// # Errors
+///
+/// See [`remove_policy`].
+///
+/// # Security Warning
+///
+/// * Indexers that rebuild account state from the smart-account events will
+///   miss these changes. The calling contract must emit an event that carries
+///   the resulting configuration.
+///
+/// * Every other warning on [`remove_policy`] applies unchanged.
+///
+/// * This function modifies storage without requiring authorization. Ensure
+///   proper access control is implemented at the contract level.
+pub fn remove_policy_no_events(e: &Env, context_rule_id: u32, policy_id: u32) {
+    remove_policy_impl(e, context_rule_id, policy_id, false)
+}
+
+fn remove_policy_impl(e: &Env, context_rule_id: u32, policy_id: u32, emit: bool) {
     let data_key = SmartAccountStorageKey::ContextRuleData(context_rule_id);
     let mut entry: ContextRuleEntry = get_persistent_entry(e, &data_key)
         .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::ContextRuleNotFound));
@@ -1201,9 +1563,11 @@ pub fn remove_policy(e: &Env, context_rule_id: u32, policy_id: u32) {
         validate_signers_and_policies(e, &entry.signer_ids, &entry.policy_ids);
 
         e.storage().persistent().set(&data_key, &entry);
-        deregister_policy(e, policy_id);
+        deregister_policy(e, policy_id, emit);
 
-        emit_policy_removed(e, context_rule_id, policy_id);
+        if emit {
+            emit_policy_removed(e, context_rule_id, policy_id);
+        }
     } else {
         panic_with_error!(e, SmartAccountError::PolicyNotFound)
     }
@@ -1222,6 +1586,7 @@ pub fn remove_policy(e: &Env, context_rule_id: u32, policy_id: u32) {
 ///
 /// * `e` - Access to the Soroban environment.
 /// * `signer` - The signer to register.
+/// * `emit` - Whether to publish the event below.
 ///
 /// # Events
 ///
@@ -1232,7 +1597,7 @@ pub fn remove_policy(e: &Env, context_rule_id: u32, policy_id: u32) {
 ///
 /// [`SmartAccountError::MathOverflow`] - When `NextSignerId` has
 /// reached `u32::MAX` and no new signer ID can be assigned.
-fn register_signer(e: &Env, signer: &Signer) -> u32 {
+fn register_signer(e: &Env, signer: &Signer, emit: bool) -> u32 {
     let hash = e.crypto().sha256(&signer.to_xdr(e)).to_bytes();
     let lookup_key = SmartAccountStorageKey::SignerLookup(hash.clone());
 
@@ -1260,7 +1625,9 @@ fn register_signer(e: &Env, signer: &Signer) -> u32 {
             .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::MathOverflow));
         e.storage().instance().set(&SmartAccountStorageKey::NextSignerId, &next_signer_id);
 
-        emit_signer_registered(e, id, signer);
+        if emit {
+            emit_signer_registered(e, id, signer);
+        }
 
         id
     }
@@ -1273,12 +1640,13 @@ fn register_signer(e: &Env, signer: &Signer) -> u32 {
 ///
 /// * `e` - Access to the Soroban environment.
 /// * `signer_id` - The signer ID to deregister.
+/// * `emit` - Whether to publish the event below.
 ///
 /// # Events
 ///
 /// * topics - `["signer_deregistered", signer_id: u32]`
 /// * data - `[]`
-fn deregister_signer(e: &Env, signer_id: u32) {
+fn deregister_signer(e: &Env, signer_id: u32, emit: bool) {
     let data_key = SmartAccountStorageKey::SignerData(signer_id);
     let entry: SignerEntry =
         e.storage().persistent().get(&data_key).expect("signer entry to exist");
@@ -1290,7 +1658,9 @@ fn deregister_signer(e: &Env, signer_id: u32) {
         e.storage().persistent().remove(&data_key);
         e.storage().persistent().remove(&SmartAccountStorageKey::SignerLookup(hash));
 
-        emit_signer_deregistered(e, signer_id);
+        if emit {
+            emit_signer_deregistered(e, signer_id);
+        }
     } else {
         e.storage()
             .persistent()
@@ -1309,6 +1679,7 @@ fn deregister_signer(e: &Env, signer_id: u32) {
 ///
 /// * `e` - Access to the Soroban environment.
 /// * `policy` - The policy address.
+/// * `emit` - Whether to publish the event below.
 ///
 /// # Events
 ///
@@ -1319,7 +1690,7 @@ fn deregister_signer(e: &Env, signer_id: u32) {
 ///
 /// [`SmartAccountError::MathOverflow`] - When `NextPolicyId` has
 /// reached `u32::MAX` and no new policy ID can be assigned.
-fn register_policy(e: &Env, policy: &Address) -> u32 {
+fn register_policy(e: &Env, policy: &Address, emit: bool) -> u32 {
     let lookup_key = SmartAccountStorageKey::PolicyLookup(policy.clone());
 
     if let Some(existing_id) = get_persistent_entry::<u32>(e, &lookup_key) {
@@ -1346,7 +1717,9 @@ fn register_policy(e: &Env, policy: &Address) -> u32 {
             .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::MathOverflow));
         e.storage().instance().set(&SmartAccountStorageKey::NextPolicyId, &next_policy_id);
 
-        emit_policy_registered(e, id, policy);
+        if emit {
+            emit_policy_registered(e, id, policy);
+        }
 
         id
     }
@@ -1359,12 +1732,13 @@ fn register_policy(e: &Env, policy: &Address) -> u32 {
 ///
 /// * `e` - Access to the Soroban environment.
 /// * `policy_id` - The policy ID to deregister.
+/// * `emit` - Whether to publish the event below.
 ///
 /// # Events
 ///
 /// * topics - `["policy_deregistered", policy_id: u32]`
 /// * data - `[]`
-fn deregister_policy(e: &Env, policy_id: u32) {
+fn deregister_policy(e: &Env, policy_id: u32, emit: bool) {
     let data_key = SmartAccountStorageKey::PolicyData(policy_id);
     let entry: PolicyEntry =
         e.storage().persistent().get(&data_key).expect("policy entry to exist");
@@ -1374,7 +1748,9 @@ fn deregister_policy(e: &Env, policy_id: u32) {
         e.storage().persistent().remove(&data_key);
         e.storage().persistent().remove(&SmartAccountStorageKey::PolicyLookup(entry.policy));
 
-        emit_policy_deregistered(e, policy_id);
+        if emit {
+            emit_policy_deregistered(e, policy_id);
+        }
     } else {
         e.storage()
             .persistent()

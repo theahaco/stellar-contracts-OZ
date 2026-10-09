@@ -905,3 +905,51 @@ fn enforce_create_contract_context_with_signers_errors() {
         enforce(&e, &context, &context_rule.signers, &context_rule, &smart_account);
     });
 }
+
+/// Installs then uninstalls, through the default or the `_no_events`
+/// functions, recording the events published and the ledger entries after
+/// each step.
+fn install_uninstall(quiet: bool) -> std::vec::Vec<(u32, std::string::String)> {
+    let e = Env::default();
+    let address = e.register(MockContract, ());
+    let smart_account = Address::generate(&e);
+    e.mock_all_auths();
+    let params = SpendingLimitAccountParams { spending_limit: 1_000_000, period_ledgers: 100 };
+    let context_rule = create_context_rule(&e);
+
+    let mut steps = std::vec::Vec::new();
+    e.as_contract(&address, || {
+        if quiet {
+            install_no_events(&e, &params, &context_rule, &smart_account);
+        } else {
+            install(&e, &params, &context_rule, &smart_account);
+        }
+    });
+    steps.push((
+        e.events().all().events().len() as u32,
+        std::format!("{:?}", e.to_ledger_snapshot().ledger_entries),
+    ));
+    e.as_contract(&address, || {
+        if quiet {
+            uninstall_no_events(&e, &context_rule, &smart_account);
+        } else {
+            uninstall(&e, &context_rule, &smart_account);
+        }
+    });
+    steps.push((
+        e.events().all().events().len() as u32,
+        std::format!("{:?}", e.to_ledger_snapshot().ledger_entries),
+    ));
+    steps
+}
+
+#[test]
+fn no_events_install_uninstall_match_default_storage() {
+    let default = install_uninstall(false);
+    let quiet = install_uninstall(true);
+
+    assert_eq!(default.iter().map(|(n, _)| *n).collect::<std::vec::Vec<_>>(), [1, 1]);
+    assert_eq!(quiet.iter().map(|(n, _)| *n).collect::<std::vec::Vec<_>>(), [0, 0]);
+    assert_eq!(default[0].1, quiet[0].1);
+    assert_eq!(default[1].1, quiet[1].1);
+}
