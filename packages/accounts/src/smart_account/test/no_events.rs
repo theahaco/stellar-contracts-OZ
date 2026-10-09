@@ -17,7 +17,7 @@ use crate::{
             remove_policy_no_events, remove_signer, remove_signer_no_events,
             update_context_rule_name, update_context_rule_name_no_events,
             update_context_rule_valid_until, update_context_rule_valid_until_no_events,
-            ContextRule, ContextRuleType, Signer,
+            ContextRule, ContextRuleType, PolicyEntry, Signer, SmartAccountStorageKey,
         },
         ContextRuleAdded, PolicyRegistered, SignerRegistered,
     },
@@ -296,4 +296,61 @@ fn default_add_context_rule_events_unchanged() {
         }
         .to_xdr(&e, &account),
     );
+}
+
+/// Exposes `add_policy` as an entry point so that a rejected call can be
+/// observed through `try_` without unwinding the test.
+#[contract]
+struct MockAccount;
+
+#[contractimpl]
+impl MockAccount {
+    pub fn add_policy(e: &Env, id: u32, policy: Address, quiet: bool) -> u32 {
+        if quiet {
+            add_policy_no_events(e, id, &policy, Val::from_void().into())
+        } else {
+            add_policy(e, id, &policy, Val::from_void().into())
+        }
+    }
+}
+
+/// `add_policy` registers the policy before its duplicate check, so a
+/// rejected duplicate must not leave the registry refcount incremented.
+#[test]
+fn duplicate_add_policy_leaves_registry_unchanged() {
+    for quiet in [false, true] {
+        let e = Env::default();
+        let account = e.register(MockAccount, ());
+        let verifier = e.register(MockVerifierContract, ());
+        let policy = e.register(MockPolicyContract, ());
+        let mut policies = Map::new(&e);
+        policies.set(policy.clone(), Val::from_void().into());
+        let rule = e.as_contract(&account, || {
+            add_context_rule(
+                &e,
+                &ContextRuleType::Default,
+                &String::from_str(&e, "doc"),
+                None,
+                &vec![&e, passkey(&e, &verifier, 1)],
+                &policies,
+            )
+        });
+        let ledger = |e: &Env| {
+            let entries = e.to_ledger_snapshot().ledger_entries;
+            std::format!(
+                "{:?}",
+                entries.iter().map(|(key, (entry, _))| (key, entry)).collect::<std::vec::Vec<_>>()
+            )
+        };
+        let before = ledger(&e);
+
+        let result = MockAccountClient::new(&e, &account).try_add_policy(&rule.id, &policy, &quiet);
+
+        assert_eq!(result.err().unwrap().unwrap(), soroban_sdk::Error::from_contract_error(3009));
+        assert_eq!(ledger(&e), before);
+        let entry: PolicyEntry = e.as_contract(&account, || {
+            e.storage().persistent().get(&SmartAccountStorageKey::PolicyData(0)).unwrap()
+        });
+        assert_eq!(entry.count, 1);
+    }
 }

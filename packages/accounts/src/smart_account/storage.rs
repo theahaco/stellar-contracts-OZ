@@ -1437,7 +1437,10 @@ fn add_policy_impl(
     let mut entry: ContextRuleEntry = get_persistent_entry(e, &data_key)
         .unwrap_or_else(|| panic_with_error!(e, SmartAccountError::ContextRuleNotFound));
 
-    // Register in global policy registry and get its ID
+    // Register in global policy registry and get its ID. This runs before the
+    // duplicate check below because the check needs the ID; on a duplicate the
+    // refcount increment is reverted together with the rest of the call by
+    // the `DuplicatePolicy` panic.
     let policy_id = register_policy(e, policy, emit);
 
     // Check if policy already exists
